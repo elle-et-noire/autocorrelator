@@ -1,4 +1,5 @@
 using ITensors
+using ITensorTDVP
 using LsqFit
 using Plots
 
@@ -47,6 +48,23 @@ function autocor(; state, tau, T, cutoff = 1e-8)
   c
 end
 
+function autocor2(; state, tau, T, cutoff = 1e-8)
+  sites = siteinds(state)
+  _, H = H_ising(; N = length(sites), sites)
+  op = OpSum()
+  op += "Sz", 1
+  Sz1 = MPO(op, sites)
+  a = apply(Sz1, state)
+
+  c = Float64[]
+  for t in tau:tau:T
+    state2 = tdvp(H, state, -t; cutoff, normalize = true, outputlevel = 1, reverse_step = false)
+    b = apply(Sz1, state2)
+    push!(c, abs(inner(a, b)))
+  end
+  c
+end
+
 function dmrg_tfising(; N, sites = siteinds("S=1/2", N), maxdim, cutoff)
   _, H = H_ising(; N, sites)
   psi0 = randomMPS(sites, linkdims=40)
@@ -59,7 +77,7 @@ function impl(; N, tau, T, cutoff)
   end
   _, state = dmrg_tfising(;N, maxdim = [20, 80, 80, 120, 120, 120, 120], cutoff)
   c = autocor(; state, tau, T, cutoff)
-  open("data/N$N-T$T-tau$tau.txt", "w") do fp
+  open("data/N$N-tau$tau.txt", "w") do fp
     println(fp, "# cutoff : $cutoff")
     Base.print_array(fp, c)
   end
@@ -80,20 +98,33 @@ function read(filename)
   data
 end
 
-function plotdata(; N, tau, T, fitrange)
-  data = read("data/N$N-T$T-tau$tau.txt")
+function plotdata(; N, tau, fitrange)
+  data = read("data/N$N-tau$tau.txt")
   v = 1
   c = vcat(data...)
-  t = tau:tau:T
-  scatter(inv.(t), c, xlabel = "1 / τ", ylabel = "<σ^z_1(τ)σ^z_1(0)>")
+  t = tau:tau:(tau * length(c))
+  scatter(t, log.(abs.(c)), xlabel = "τ", ylabel = "ln <σ^z_1(τ)σ^z_1(0)>")
 
   f(x, p) = @. p[1] * x + p[2]
-  fit = curve_fit(f, inv.(t)[fitrange], c[fitrange], [0., 0.])
-  xs = [minimum(inv.(t)):1e-2:maximum(inv.(t));]
+  fit = curve_fit(f, t[fitrange], log.(abs.(c))[fitrange], [0., 0.])
+  xs = [minimum(t):0.1*abs(tau):maximum(t);]
   plot!(xs, f(xs, fit.param), title = "fitrange$fitrange", label = "y = $(fit.param[1])x + $(fit.param[2])")
-  savefig("plot/N$N-T$T-tau$tau.png")
+  savefig("plot/N$N-tau$tau.png")
 
   fit.param
+end
+
+function a4N(; tau = 1e-3, Ns = [10:10:100;])
+  a = []
+  for N in Ns
+    push!(a, plotdata(;N, tau, fitrange = 1:3)[1])
+  end
+  scatter(Ns, a)
+  f(x, p) = @. p[1] * x + p[2]
+  fit = curve_fit(f, Ns, a, [0., 0.])
+  plot!(Ns, f(Ns, fit.param), label = "y = $(fit.param[1])x + $(fit.param[2])")
+  savefig("plot/a4N.png")
+  a
 end
 
 begin
