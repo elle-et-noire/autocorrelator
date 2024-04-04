@@ -2,35 +2,121 @@ using ITensors
 using ITensorTDVP
 using LsqFit
 using Plots
+using Printf
 
 # free-free
-function H_ising(; N, sites = siteinds(N, "S=1/2"), J = 1, Γ = 1)
+function H_ising(;N, sites=siteinds("S=1/2", N), J=0.25, Γ=0.5)
   os = OpSum()
   for j in 1:N-1
     os += -4J, "Sz", j, "Sz", j + 1
     os += -2Γ, "Sx", j
   end
   os += -2Γ, "Sx", N
-  sites, MPO(os, sites)
+  MPO(os, sites), sites
 end
 
-function U_ising(; sites, J = 1, Γ = 1, tau)
+function mag(sites)
+  os = OpSum()
+  for j in eachindex(sites)
+    os += inv(length(sites)), "Sz", j
+  end
+  MPO(os, sites)
+end
+
+function mag2(sites)
+  m = mag(sites)
+  apply(m, m)
+end
+
+function binder(state)
+  sites = siteinds(state)
+  m2 = mag2(sites)
+  m4 = apply(m2, m2)
+  abs(dot(state', m4, state)) / abs(dot(state', m2, state))^2
+end
+
+function binder4N(;H, Ns=[10, 20, 40, 80], Γs = [0.95:1e-2:1.05;])
+  χ = [[40, 60, 60, 60, 80, 80]; [120 for _ in 1:15]]
+
+  plt = plot()
+  for N in Ns
+    b = []
+    for Γ in Γs
+      H_mpo, sites = H(;N, J=1, Γ)
+      _, psi0 = dmrg(H_mpo, randomMPS(sites; linkdims=40); nsweeps=length(χ), maxdim=χ, cutoff=1e-12, noise=1e-10)
+      push!(b, binder(psi0))
+    end
+    scatter!(plt, Γs, b, label="N=$N", xlabel="Γ", ylabel="<m^4>/<m^2>")
+  end
+
+  savefig(plt, "binder.png")
+end
+
+function linfit(xs, ys)
+  f(x, p) = @. p[1] * x + p[2]
+  fit = curve_fit(f, xs, ys, [0., 0.])
+  x -> f(x, fit.param), fit.param...
+end
+
+function linsp(xs; step=1e-4)
+  [minimum(xs):step:maximum(xs);]
+end
+
+function f2s(x)
+  @sprintf "%.3e" x
+end
+
+function check_criticality(;H, Ns=[10:10:100;])
+  χ = [[40, 60, 60, 60, 80, 80]; [120 for _ in 1:15]]
+  energy0 = []
+  energy1 = []
+  for N in Ns
+    H_mpo, sites = H(;N)
+    E0, psi0 = dmrg(H_mpo, randomMPS(sites; linkdims=40); nsweeps=length(χ), maxdim=χ, cutoff=1e-12, noise=1e-10)
+    E1, _ = dmrg(H_mpo, [psi0], randomMPS(sites; linkdims=40); nsweeps=length(χ), maxdim=χ, cutoff=1e-12, noise=1e-10, weight=100)
+    push!(energy0, E0)
+    push!(energy1, E1)
+  end
+
+  fitrange = 5:10
+
+  xs = Ns.^-1; ys = energy0 ./ Ns
+  scatter(xs, ys, xlabel="N^-1", ylabel="E0/N")
+  f, a, b = linfit(xs[fitrange], ys[fitrange])
+  plot!(linsp(xs), f(linsp(xs)), label="y=$(f2s(a))x+$(f2s(b))")
+  savefig("plot/gs.png")
+  vc = a * 6 / pi
+
+  xs = Ns.^-1; ys = energy1 - energy0
+  scatter(xs, ys, xlabel="N^-1", ylabel="E1 - E0")
+  f, a, b = linfit(xs[fitrange], ys[fitrange])
+  plot!(linsp(xs), f(linsp(xs)), label="y=$(f2s(a))x+$(f2s(b))")
+  savefig("plot/gap.png")
+  v = a * 4 / pi
+  c = vc / v
+  println("v=$v, c=$c")
+end
+
+function U_ising(;sites, J=1, Γ=1, tau)
   N = length(sites)
   gates = ITensor[]
 
-  hj = -4J * op("Sz", sites[1]) * op("Sz", sites[2]) - 2Γ * op("Sx", sites[1]) * op("I", sites[2]) - Γ * op("I", sites[1]) * op("Sx", sites[2])
+  s1 = sites[1]; s2 = sites[2]
+  hj = -4J * op("Sz", s1) * op("Sz", s2) - 2Γ * op("Sx", s1) * op("I", s2) - Γ * op("I", s1) * op("Sx", s2)
   push!(gates, exp(tau / 2 * hj))
   for j in 2:N-2
-    hj = -4J * op("Sz", sites[j]) * op("Sz", sites[j + 1]) - Γ * op("Sx", sites[j]) * op("I", sites[j + 1]) - Γ * op("I", sites[j]) * op("Sx", sites[j + 1])
+    s1, s2 = sites[j], sites[j+1]
+    hj = -4J * op("Sz", s1) * op("Sz", s2) - Γ * op("Sx", s1) * op("I", s2) - Γ * op("I", s1) * op("Sx", s2)
     push!(gates, exp(tau / 2 * hj))
   end
-  hj = -4J * op("Sz", sites[end - 1]) * op("Sz", sites[end]) - Γ * op("Sx", sites[end - 1]) * op("I", sites[end]) - 2Γ * op("I", sites[end - 1]) * op("Sx", sites[end])
+  s1, s2 = sites[end-1], sites[end]
+  hj = -4J * op("Sz", s1) * op("Sz", s2) - Γ * op("Sx", s1) * op("I", s2) - 2Γ * op("I", s1) * op("Sx", s2)
   push!(gates, exp(tau / 2 * hj))
   append!(gates, reverse(gates))
   gates
 end
 
-function autocor(; state, tau, T, cutoff = 1e-8)
+function autocor(;state, tau, T, cutoff=1e-8)
   sites = siteinds(state)
   op = OpSum()
   op += "Sz", 1
@@ -44,17 +130,15 @@ function autocor(; state, tau, T, cutoff = 1e-8)
   for i in eachindex(tau:tau:T)
     state = apply(gates, state; cutoff)
     b = apply(Sz1, state)
-    for j in 1:i
-      b = apply(gates_inv, b)
-    end
+    b = apply(vcat([gates_inv for _ in 1:i]...), b; cutoff)
     push!(c, inner(a, b))
   end
   c
 end
 
-function autocor2(; state, tau, T, cutoff = 1e-8)
+function autocor2(;state, tau, T, cutoff=1e-8)
   sites = siteinds(state)
-  _, H = H_ising(; N = length(sites), sites)
+  H, _ = H_ising(; N = length(sites), sites)
   op = OpSum()
   op += "Sz", 1
   Sz1 = MPO(op, sites)
@@ -69,25 +153,25 @@ function autocor2(; state, tau, T, cutoff = 1e-8)
   c
 end
 
-function dmrg_tfising(; N, sites = siteinds("S=1/2", N), maxdim, cutoff)
-  _, H = H_ising(; N, sites)
+function dmrg_tfising(;N, sites=siteinds("S=1/2", N), maxdim, cutoff)
+  H, _ = H_ising(;N, sites)
   psi0 = randomMPS(sites, linkdims=40)
-  dmrg(H, psi0; nsweeps = length(maxdim), maxdim, cutoff)
+  dmrg(H, psi0; nsweeps=length(maxdim), maxdim, cutoff)
 end
 
-function impl(; N, tau, T, cutoff)
+function impl(;N, tau, T, cutoff)
   if !ispath("data")
     mkdir("data")
   end
-  _, state = dmrg_tfising(;N, maxdim = [20, 80, 80, 120, 120, 120, 120], cutoff)
-  c = autocor(; state, tau, T, cutoff)
+  # _, psi0 = dmrg_tfising(;N, maxdim=[20, 80, 80, 120, 120, 120, 120], cutoff)
+  psi0 = randomMPS(siteinds("S=1/2", N), linkdims=40)
+  c = autocor(;state=psi0, tau, T, cutoff)
   open("data/N$N-tau$tau.txt", "w") do fp
     println(fp, "# cutoff : $cutoff")
     Base.print_array(fp, c)
   end
   c
 end
-
 
 function read(filename)
   data = []
@@ -102,20 +186,36 @@ function read(filename)
   data
 end
 
-function plotdata(; N, tau, fitrange)
+function plotdata(;N, tau, fitrange=1:3, subtrexp=true)
+  !ispath("plot") && mkdir("plot")
+  data = read("data/N$N-tau$tau.txt")
+  c = vcat(data...)
+  y = log.(abs.(c))
+  t = tau:tau:(tau * length(c))
+
+  scatter(t, y, xlabel="τ", ylabel="ln <σ^z_1(τ)σ^z_1(0)>")
+  f, a, b = linfit(t[fitrange], y[fitrange])
+  plot!(linsp(t), f(linsp(t)), title="fitrange$fitrange", label="y=$(a)x+$(b))")
+  savefig("plot/N$N-tau$tau.png")
+
+  y -= a * t .+ b
+  y = abs.(y)
+  scatter(t, y, xlabel="τ", ylabel="ln <σ^z_1(τ)σ^z_1(0)> - aτ - b")
+  savefig("plot/N$N-tau$tau-subtrexp.png")
+end
+
+function subtrexp(;N, tau, fitrange=1:3)
+  !ispath("plot") && mkdir("plot")
   data = read("data/N$N-tau$tau.txt")
   v = 1
   c = vcat(data...)
+  y = log.(abs.(c))
   t = tau:tau:(tau * length(c))
-  scatter(t, log.(abs.(c)), xlabel = "τ", ylabel = "ln <σ^z_1(τ)σ^z_1(0)>")
 
-  f(x, p) = @. p[1] * x + p[2]
-  fit = curve_fit(f, t[fitrange], log.(abs.(c))[fitrange], [0., 0.])
-  xs = [minimum(t):0.1*abs(tau):maximum(t);]
-  plot!(xs, f(xs, fit.param), title = "fitrange$fitrange", label = "y = $(fit.param[1])x + $(fit.param[2])")
+  scatter(t, y, xlabel="τ", ylabel="ln <σ^z_1(τ)σ^z_1(0)>")
+  f, a, b = linfit(t[fitrange], y[fitrange])
+  plot!(linsp(t), f(linsp(t)), title="fitrange$fitrange", label="y=$(a)x+$(b))")
   savefig("plot/N$N-tau$tau.png")
-
-  fit.param
 end
 
 function a4N(; tau = 1e-3, Ns = [10:10:100;])

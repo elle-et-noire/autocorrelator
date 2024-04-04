@@ -5,4 +5,4 @@
 #SBATCH -n 1
 #SBATCH -c 1
 
-julia ising-autocor.jl 10:10:100 0.001 0.05 1e-10
+julia ising-autocor.jl 10:10:100 0.01 1.0 1e-10
