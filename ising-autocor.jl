@@ -137,22 +137,22 @@ begin
     println("julia ising-autocor.jl N tau T [cutoff]")
     return
   end
-  cutoff = 1e-10
+  maxerr = 1e-10
   if length(ARGS) >= 4
-    cutoff = parse(Float64, ARGS[4])
+    maxerr = parse(Float64, ARGS[4])
   end
   if contains(ARGS[1], ':')
     Ns = nothing
     v = split(ARGS[1], ':')
     if length(v) == 2
-      Ns = parse(Int, v[1]):parse(Int, v[2])
+      Ns = collect(parse(Int, v[1]):parse(Int, v[2]))
     elseif length(v) == 3
-      Ns = parse(Int, v[1]):parse(Int, v[2])
+      Ns = collect(parse(Int, v[1]):parse(Int, v[2]):parse(Int, v[3]))
     end
     for N in Ns
-      impl(;N, tau = ARGS[2], T = ARGS[3], cutoff)
+      impl(;N, tau = parse(Float64, ARGS[2]), T = parse(Float64, ARGS[3]), cutoff = maxerr)
     end
   else
-    impl(;N = ARGS[1], tau = ARGS[2], T = ARGS[3], cutoff)
+    impl(;N = ARGS[1], tau = parse(Float64, ARGS[2]), T = parse(Float64, ARGS[3]), cutoff = maxerr)
   end
 end
