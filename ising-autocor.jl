@@ -38,11 +38,15 @@ function autocor(; state, tau, T, cutoff = 1e-8)
   a = apply(Sz1, state)
 
   gates = U_ising(;sites, tau)
+  gates_inv = U_ising(;sites, tau = -tau)
 
   c = Float64[]
-  for _ in tau:tau:T
+  for i in eachindex(tau:tau:T)
     state = apply(gates, state; cutoff)
     b = apply(Sz1, state)
+    for j in 1:i
+      b = apply(gates_inv, b)
+    end
     push!(c, inner(a, b))
   end
   c
