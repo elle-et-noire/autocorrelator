@@ -141,5 +141,18 @@ begin
   if length(ARGS) >= 4
     cutoff = parse(Float64, ARGS[4])
   end
-  impl(;N = ARGS[1], tau = ARGS[2], T = ARGS[3], cutoff)
+  if contains(ARGS[1], ':')
+    Ns = nothing
+    v = split(ARGS[1], ':')
+    if length(v) == 2
+      Ns = parse(Int, v[1]):parse(Int, v[2])
+    elseif length(v) == 3
+      Ns = parse(Int, v[1]):parse(Int, v[2])
+    end
+    for N in Ns
+      impl(;N, tau = ARGS[2], T = ARGS[3], cutoff)
+    end
+  else
+    impl(;N = ARGS[1], tau = ARGS[2], T = ARGS[3], cutoff)
+  end
 end
