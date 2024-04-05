@@ -146,7 +146,7 @@ function autocor2(;state, tau, T, cutoff=1e-8)
 
   c = Float64[]
   for t in tau:tau:T
-    state2 = tdvp(H, state, -t; cutoff, normalize = true, outputlevel = 1, reverse_step = false)
+    state2 = tdvp(H, state, -t; cutoff, normalize=true, outputlevel=1, reverse_step=false)
     b = apply(Sz1, state2)
     push!(c, abs(inner(a, b)))
   end
@@ -160,11 +160,8 @@ function dmrg_tfising(;N, sites=siteinds("S=1/2", N), maxdim, cutoff)
 end
 
 function impl(;N, tau, T, cutoff)
-  if !ispath("data")
-    mkdir("data")
-  end
-  # _, psi0 = dmrg_tfising(;N, maxdim=[20, 80, 80, 120, 120, 120, 120], cutoff)
-  psi0 = randomMPS(siteinds("S=1/2", N), linkdims=40)
+  !ispath("data") && mkdir("data")
+  _, psi0 = dmrg_tfising(;N, maxdim=[20, 80, 80, 120, 120, 120, 120], cutoff)
   c = autocor(;state=psi0, tau, T, cutoff)
   open("data/N$N-tau$tau.txt", "w") do fp
     println(fp, "# cutoff : $cutoff")
@@ -199,7 +196,6 @@ function plotdata(;N, tau, fitrange=1:3, subtrexp=true)
   savefig("plot/N$N-tau$tau.png")
 
   y -= a * t .+ b
-  y = abs.(y)
   scatter(t, y, xlabel="τ", ylabel="ln <σ^z_1(τ)σ^z_1(0)> - aτ - b")
   savefig("plot/N$N-tau$tau-subtrexp.png")
 end
