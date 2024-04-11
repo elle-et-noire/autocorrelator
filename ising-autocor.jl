@@ -4,6 +4,8 @@ using LsqFit
 using Plots
 using Printf
 using LaTeXStrings
+using SparseArrays
+using LinearAlgebra
 
 default(
   fontfamily="serif-roman",
@@ -20,8 +22,32 @@ default(
   linewidth=2
 )
 
+function autocor_exact(; N, Ts, J=1, Γ=1)
+  sz = sparse([1 0; 0 -1])
+  sx = sparse([0 1; 1 0])
+  ⊗ = kron
+  H = spzeros(Float64, 2^N, 2^N)
+  spI(n) = sparse(I(2^n))
+
+  for j in 1:N-1
+    H += -J * spI(j - 1) ⊗ sz ⊗ sz ⊗ spI(N - j - 1)
+    H += -Γ * spI(j - 1) ⊗ sx ⊗ spI(N - j)
+  end
+  H += -Γ * spI(N - 1) ⊗ sx
+
+  sx1 = sx ⊗ spI(N - 1)
+  λ, U = eigen(Matrix(H))
+  v0 = U[:, 1]
+
+  c = zeros(length(Ts))
+  for (i, T) in enumerate(Ts)
+    c[i] = v0' * U * Diagonal(exp.(T * λ)) * U' * sx1 * U * Diagonal(exp.(-T * λ)) * U' * sx1 * v0
+  end
+  c
+end
+
 # free-free
-function H_ising(; N, sites=siteinds("S=1/2", N), J=0.25, Γ=0.5)
+function H_ising(; N, sites=siteinds("S=1/2", N), J=1, Γ=1)
   os = OpSum()
   for j in 1:N-1
     os += -4J, "Sz", j, "Sz", j + 1
@@ -159,6 +185,14 @@ function autocor(; state, tau, T, cutoff=1e-8)
   c
 end
 
+function singlefunc(state)
+  sites = siteinds(state)
+  op = OpSum()
+  op += "Sz", 1
+  Sz1 = MPO(op, sites)
+  dot(state', Sz1, state)
+end
+
 function autocor2(; state, tau, T, cutoff=1e-8)
   sites = siteinds(state)
   H, _ = H_ising(; N=length(sites), sites)
@@ -206,12 +240,14 @@ function read(filename)
   data
 end
 
-function plotdata(; N, tau, fitrange=1:3, subtrexp=true)
+function plotdata(; N, tau, fitrange=1:3, plotrange=1:100)
   !ispath("plot") && mkdir("plot")
   data = read("data/N$N-tau$tau.txt")
-  c = vcat(data...)
+  c = vcat(data...)[plotrange]
   y = log.(abs.(c))
   t = tau:tau:(tau*length(c))
+  scatter(t, c, label="", marker=:+, stroke=1, xlabel=L"\tau", ylabel=L"\langle \sigma^z_1(\tau)\sigma^z_1(0)\rangle")
+  savefig("plot/N$N-tau$tau-raw.png")
   sslabel = "\\ln\\ \\langle \\sigma^z_1(\\tau)\\sigma^z_1(0)\\rangle"
 
   scatter(t, y, xlabel=L"\tau", ylabel=L"%$sslabel", label="", stroke=1, marker=:+)
@@ -222,20 +258,6 @@ function plotdata(; N, tau, fitrange=1:3, subtrexp=true)
   y -= a * t .+ b
   scatter(t, y, xlabel=L"\tau", ylabel=L"%$sslabel %$(sf2s(-a)) \tau %$(sf2s(-b))", label="", stroke=1, marker=:+)
   savefig("plot/N$N-tau$tau-subtrexp.png")
-end
-
-function subtrexp(; N, tau, fitrange=1:3)
-  !ispath("plot") && mkdir("plot")
-  data = read("data/N$N-tau$tau.txt")
-  v = 1
-  c = vcat(data...)
-  y = log.(abs.(c))
-  t = tau:tau:(tau*length(c))
-
-  scatter(t, y, xlabel="τ", ylabel="ln <σ^z_1(τ)σ^z_1(0)>")
-  f, a, b = linfit(t[fitrange], y[fitrange])
-  plot!(linsp(t), f(linsp(t)), title="fitrange$fitrange", label="y=$(a)x+$(b))")
-  savefig("plot/N$N-tau$tau.png")
 end
 
 function a4N(; tau=1e-3, Ns=[10:10:100;])
