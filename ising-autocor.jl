@@ -244,9 +244,21 @@ function plotdata(; N, tau, fitrange=1:3, plotrange=1:100)
   !ispath("plot") && mkdir("plot")
   data = read("data/N$N-tau$tau.txt")
   c = vcat(data...)[plotrange]
+  i_end = maximum(plotrange)
+  for i in plotrange
+    if c[i] < 0
+      i_end = i - 1
+      break
+    end
+  end
+  plotrange = 1:i_end
+  println(i_end)
+
+  c = vcat(data...)[plotrange]
   y = log.(abs.(c))
   t = tau:tau:(tau*length(c))
   scatter(t, c, label="", marker=:+, stroke=1, xlabel=L"\tau", ylabel=L"\langle \sigma^z_1(\tau)\sigma^z_1(0)\rangle")
+
   savefig("plot/N$N-tau$tau-raw.png")
   sslabel = "\\ln\\ \\langle \\sigma^z_1(\\tau)\\sigma^z_1(0)\\rangle"
 
